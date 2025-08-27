@@ -1,0 +1,21 @@
+services:
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: >
+      sh -c "
+      python3 bot.py --watch --interval 5"
+    volumes:
+      - .:/app
+      - static_volume:/app/static
+      - media_volume:/app/media
+    expose:
+      - "8080"
+    ports:
+      - "8080:8080"
+
+volumes:
+  static_volume:
+  media_volume:
