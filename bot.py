@@ -1,18 +1,20 @@
-import argparse
-import time
-import pandas as pd
-import telebot
+import asyncio
 import os
+import pandas as pd
+from aiogram import Bot, Dispatcher
+from aiogram.types import Message
 from dotenv import load_dotenv
 
 load_dotenv()
+
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")  # kanal/guruh username yoki chat_id
 
-bot = telebot.TeleBot(BOT_TOKEN)
-
 SHEET_ID = os.getenv('GOOGLE_SHEET_ID')
 CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv"
+
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher()
 
 old_rows = set()
 
@@ -26,7 +28,8 @@ COLUMNS = [
     "ad_name"
 ]
 
-def check_updates(process_all=False):
+
+async def check_updates(process_all=False):
     global old_rows
     df = pd.read_csv(CSV_URL)
     df = df[COLUMNS]  # faqat kerakli ustunlarni olamiz
@@ -52,30 +55,34 @@ def check_updates(process_all=False):
                 f"📌 Adset: {row_dict['adset_name']}\n"
                 f"📢 Reklama: {row_dict['ad_name']}"
             )
-            bot.send_message(CHAT_ID, msg)
+            await bot.send_message(CHAT_ID, msg)
 
     old_rows = new_rows
 
 
+async def scheduler(interval=10):
+    while True:
+        try:
+            await check_updates()
+        except Exception as e:
+            print("Xato:", e)
+        await asyncio.sleep(interval)
+
+
+@dp.message()
+async def start(message: Message):
+    await message.answer("✅ Bot ishga tushdi. Google Sheets kuzatilyapti...")
+
+
+async def main():
+    # bir martalik barcha ma'lumotlarni yuborish
+    await check_updates(process_all=True)
+
+    # kuzatuvchi ishga tushirish
+    asyncio.create_task(scheduler(interval=10))
+
+    await dp.start_polling(bot)
+
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--watch", action="store_true", help="Google Sheetsni kuzatish rejimi")
-    parser.add_argument("--interval", type=int, default=10, help="Tekshirish oralig‘i (sekund)")
-    parser.add_argument("--process-once", action="store_true", help="Faqat 1 marta ishlash")
-
-    args = parser.parse_args()
-
-    if args.process_once:
-        print("▶️ Bir martalik ishlash...")
-        check_updates(process_all=True)
-        print("✅ Tugadi.")
-    elif args.watch:
-        print(f"⏳ Watching Google Sheets (interval {args.interval}s)...")
-        while True:
-            try:
-                check_updates()
-            except Exception as e:
-                print("Xato:", e)
-            time.sleep(args.interval)
-    else:
-        print("❌ Parametr kiritilmadi. --watch yoki --process-once dan foydalaning.")
+    asyncio.run(main())
