@@ -1,6 +1,6 @@
 import asyncio
-import json
 import os
+import sqlite3
 
 import pandas as pd
 from aiogram import Bot, Dispatcher
@@ -17,10 +17,7 @@ CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv"
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# Yuborilgan telefon raqamlarni saqlash fayli
-STATE_FILE = "sent_phones.json"
-
-# 🔎 Kerakli ustunlar ro‘yxati
+# 🔎 Kerakli ustunlar
 COLUMNS = [
     "ismingiz?",
     "telefon_raqamingiz?",
@@ -31,59 +28,101 @@ COLUMNS = [
 ]
 
 
-def load_sent_phones():
-    if os.path.exists(STATE_FILE):
-        with open(STATE_FILE, "r") as f:
-            return set(json.load(f))
-    return set()
+# === DB Qism ===
+def init_db():
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
+    cursor.execute("""
+                   CREATE TABLE IF NOT EXISTS users
+                   (
+                       id
+                       INTEGER
+                       PRIMARY
+                       KEY
+                       AUTOINCREMENT,
+                       name
+                       TEXT,
+                       phone
+                       TEXT,
+                       raw_phone
+                       TEXT
+                       UNIQUE,
+                       workers
+                       TEXT,
+                       adset
+                       TEXT,
+                       ad_name
+                       TEXT,
+                       sent
+                       INTEGER
+                       DEFAULT
+                       0
+                   )
+                   """)
+    conn.commit()
+    conn.close()
 
 
-def save_sent_phones(phones):
-    with open(STATE_FILE, "w") as f:
-        json.dump(list(phones), f)
-
-
-sent_phones = load_sent_phones()
-
-
-async def check_updates(process_all=False):
-    global sent_phones
+def save_users_from_sheet():
     df = pd.read_csv(CSV_URL)
-    df = df[COLUMNS]  # faqat kerakli ustunlarni olamiz
-    count = 0
-    for _, row in df.iterrows():
-        phone = str(row["номер_телефона"]).strip()
-        count += 1
-        # telefon raqam yuborilgan bo‘lsa - tashlab ketamiz
-        if phone in sent_phones:
-            continue
+    df = df[COLUMNS]
 
-        row_dict = row.to_dict()
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
+
+    for _, row in df.iterrows():
+        cursor.execute("""
+                       INSERT
+                       OR IGNORE INTO users (name, phone, raw_phone, workers, adset, ad_name)
+        VALUES (?, ?, ?, ?, ?, ?)
+                       """, (
+                           str(row["ismingiz?"]).strip(),
+                           str(row["telefon_raqamingiz?"]).strip(),
+                           str(row["номер_телефона"]).strip(),
+                           str(row["xodimlar_soni?"]).strip(),
+                           str(row["adset_name"]).strip(),
+                           str(row["ad_name"]).strip()
+                       ))
+    conn.commit()
+    conn.close()
+
+
+async def send_unsent_users():
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, name, phone, raw_phone, workers, adset, ad_name FROM users WHERE sent = 0 ORDER BY id")
+    rows = cursor.fetchall()
+
+    for row in rows:
+        user_id, name, phone, raw_phone, workers, adset, ad_name = row
 
         msg = (
-            f"📊 Yangi ma'lumot: sheet number {count}\n"
-            f"👤 Ism: {row_dict['ismingiz?']}\n"
-            f"📞 Telefon: {row_dict['telefon_raqamingiz?']}\n"
-            f"📱 Номер телефона: {row_dict['номер_телефона']}\n"
-            f"👥 Xodimlar soni: {row_dict['xodimlar_soni?']}\n"
-            f"📌 Adset: {row_dict['adset_name']}\n"
-            f"📢 Reklama: {row_dict['ad_name']}"
+            f"📊 Yangi ma'lumot (ID: {user_id})\n"
+            f"👤 Ism: {name}\n"
+            f"📞 Telefon: {phone}\n"
+            f"📱 Номер телефона: {raw_phone}\n"
+            f"👥 Xodimlar soni: {workers}\n"
+            f"📌 Adset: {adset}\n"
+            f"📢 Reklama: {ad_name}"
         )
-
         try:
             await bot.send_message(CHAT_ID, msg)
-            sent_phones.add(phone)  # yuborilgan raqamni qo‘shib qo‘yamiz
-            save_sent_phones(sent_phones)
-            await asyncio.sleep(1.2)  # flood control uchun delay
+
+            cursor.execute("UPDATE users SET sent = 1 WHERE id = ?", (user_id,))
+            conn.commit()
+            await asyncio.sleep(1.2)  # flood control
         except Exception as e:
             print("Yuborishda xato:", e)
             await asyncio.sleep(5)
 
+    conn.close()
 
-async def scheduler(interval=10):
+
+async def scheduler(interval=30):
     while True:
         try:
-            await check_updates()
+            save_users_from_sheet()
+            await send_unsent_users()
         except Exception as e:
             print("Xato:", e)
         await asyncio.sleep(interval)
@@ -95,12 +134,11 @@ async def start(message: Message):
 
 
 async def main():
-    # dastlabki barcha ma’lumotlarni tekshirib yuborish
-    await check_updates(process_all=True)
+    init_db()
+    save_users_from_sheet()
+    await send_unsent_users()
 
-    # kuzatuvchi ishga tushirish
-    asyncio.create_task(scheduler(interval=10))
-
+    asyncio.create_task(scheduler(interval=30))
     await dp.start_polling(bot)
 
 
