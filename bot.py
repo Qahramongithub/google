@@ -1,5 +1,7 @@
 import asyncio
+import json
 import os
+
 import pandas as pd
 from aiogram import Bot, Dispatcher
 from aiogram.types import Message
@@ -9,14 +11,14 @@ load_dotenv()
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")  # kanal/guruh username yoki chat_id
-
-SHEET_ID = os.getenv('GOOGLE_SHEET_ID')
+SHEET_ID = os.getenv("GOOGLE_SHEET_ID")
 CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv"
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-old_rows = set()
+# Yuborilgan qatorlarni saqlash fayli
+STATE_FILE = "sent_rows.json"
 
 # 🔎 Kerakli ustunlar ro‘yxati
 COLUMNS = [
@@ -25,8 +27,23 @@ COLUMNS = [
     "номер_телефона",
     "xodimlar_soni?",
     "adset_name",
-    "ad_name"
+    "ad_name",
 ]
+
+
+def load_old_rows():
+    if os.path.exists(STATE_FILE):
+        with open(STATE_FILE, "r") as f:
+            return set(tuple(x) for x in json.load(f))
+    return set()
+
+
+def save_old_rows(rows):
+    with open(STATE_FILE, "w") as f:
+        json.dump([list(x) for x in rows], f)
+
+
+old_rows = load_old_rows()
 
 
 async def check_updates(process_all=False):
@@ -58,6 +75,7 @@ async def check_updates(process_all=False):
             await bot.send_message(CHAT_ID, msg)
 
     old_rows = new_rows
+    save_old_rows(old_rows)
 
 
 async def scheduler(interval=10):
@@ -82,9 +100,6 @@ async def main():
     asyncio.create_task(scheduler(interval=10))
 
     await dp.start_polling(bot)
-
-
-
 
 
 if __name__ == "__main__":
