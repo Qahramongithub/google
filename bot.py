@@ -17,8 +17,8 @@ CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv"
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# Yuborilgan qatorlarni saqlash fayli
-STATE_FILE = "sent_rows.json"
+# Yuborilgan telefon raqamlarni saqlash fayli
+STATE_FILE = "sent_phones.json"
 
 # 🔎 Kerakli ustunlar ro‘yxati
 COLUMNS = [
@@ -31,51 +31,53 @@ COLUMNS = [
 ]
 
 
-def load_old_rows():
+def load_sent_phones():
     if os.path.exists(STATE_FILE):
         with open(STATE_FILE, "r") as f:
-            return set(tuple(x) for x in json.load(f))
+            return set(json.load(f))
     return set()
 
 
-def save_old_rows(rows):
+def save_sent_phones(phones):
     with open(STATE_FILE, "w") as f:
-        json.dump([list(x) for x in rows], f)
+        json.dump(list(phones), f)
 
 
-old_rows = load_old_rows()
+sent_phones = load_sent_phones()
 
 
 async def check_updates(process_all=False):
-    global old_rows
+    global sent_phones
     df = pd.read_csv(CSV_URL)
     df = df[COLUMNS]  # faqat kerakli ustunlarni olamiz
+    count = 0
+    for _, row in df.iterrows():
+        phone = str(row["номер_телефона"]).strip()
+        count += 1
+        # telefon raqam yuborilgan bo‘lsa - tashlab ketamiz
+        if phone in sent_phones:
+            continue
 
-    new_rows = set(tuple(x) for x in df.astype(str).values.tolist())
+        row_dict = row.to_dict()
 
-    # bir martalik rejimda barcha ma’lumotlarni yuboradi
-    if process_all and not old_rows:
-        diff = new_rows
-    else:
-        diff = new_rows - old_rows
+        msg = (
+            f"📊 Yangi ma'lumot: sheet number {count}\n"
+            f"👤 Ism: {row_dict['ismingiz?']}\n"
+            f"📞 Telefon: {row_dict['telefon_raqamingiz?']}\n"
+            f"📱 Номер телефона: {row_dict['номер_телефона']}\n"
+            f"👥 Xodimlar soni: {row_dict['xodimlar_soni?']}\n"
+            f"📌 Adset: {row_dict['adset_name']}\n"
+            f"📢 Reklama: {row_dict['ad_name']}"
+        )
 
-    if diff:
-        for row in diff:
-            row_dict = dict(zip(COLUMNS, row))  # tuple → dict
-
-            msg = (
-                f"📊 Yangi ma'lumot:\n"
-                f"👤 Ism: {row_dict['ismingiz?']}\n"
-                f"📞 Telefon: {row_dict['telefon_raqamingiz?']}\n"
-                f"📱 Номер телефона: {row_dict['номер_телефона']}\n"
-                f"👥 Xodimlar soni: {row_dict['xodimlar_soni?']}\n"
-                f"📌 Adset: {row_dict['adset_name']}\n"
-                f"📢 Reklama: {row_dict['ad_name']}"
-            )
+        try:
             await bot.send_message(CHAT_ID, msg)
-
-    old_rows = new_rows
-    save_old_rows(old_rows)
+            sent_phones.add(phone)  # yuborilgan raqamni qo‘shib qo‘yamiz
+            save_sent_phones(sent_phones)
+            await asyncio.sleep(1.2)  # flood control uchun delay
+        except Exception as e:
+            print("Yuborishda xato:", e)
+            await asyncio.sleep(5)
 
 
 async def scheduler(interval=10):
@@ -93,7 +95,7 @@ async def start(message: Message):
 
 
 async def main():
-    # bir martalik barcha ma'lumotlarni yuborish
+    # dastlabki barcha ma’lumotlarni tekshirib yuborish
     await check_updates(process_all=True)
 
     # kuzatuvchi ishga tushirish
