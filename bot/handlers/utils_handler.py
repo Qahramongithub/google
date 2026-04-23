@@ -4,7 +4,7 @@ import re
 import sqlite3
 
 import pandas as pd
-from aiogram import Bot, Dispatcher
+from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
 from dotenv import load_dotenv
 
@@ -16,7 +16,6 @@ SHEET_ID = os.getenv("GOOGLE_SHEET_ID")
 CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv"
 
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
-dp = Dispatcher()
 
 MAX_LEN = 4000
 
@@ -24,39 +23,39 @@ MAX_LEN = 4000
 DB_COLUMNS = ["ismingiz?", "telefon_raqamingiz?", "номер_телефона", "xodimlar_soni?", "adset_name", "ad_name"]
 
 
-# === DB ===
-def init_db():
-    conn = sqlite3.connect("users.db")
-    cursor = conn.cursor()
-    cursor.execute("""
-                   CREATE TABLE IF NOT EXISTS users
-                   (
-                       id
-                       INTEGER
-                       PRIMARY
-                       KEY
-                       AUTOINCREMENT,
-                       name
-                       TEXT,
-                       phone
-                       TEXT,
-                       raw_phone
-                       TEXT
-                       UNIQUE,
-                       workers
-                       TEXT,
-                       adset
-                       TEXT,
-                       ad_name
-                       TEXT,
-                       sent
-                       INTEGER
-                       DEFAULT
-                       0
-                   )
-                   """)
-    conn.commit()
-    conn.close()
+# # === DB ===
+# def init_db():
+#     conn = sqlite3.connect("time_pay.db")
+#     cursor = conn.cursor()
+#     cursor.execute("""
+#                    CREATE TABLE IF NOT EXISTS users
+#                    (
+#                        id
+#                        INTEGER
+#                        PRIMARY
+#                        KEY
+#                        AUTOINCREMENT,
+#                        name
+#                        TEXT,
+#                        phone
+#                        TEXT,
+#                        raw_phone
+#                        TEXT
+#                        UNIQUE,
+#                        workers
+#                        TEXT,
+#                        adset
+#                        TEXT,
+#                        ad_name
+#                        TEXT,
+#                        sent
+#                        INTEGER
+#                        DEFAULT
+#                        0
+#                    )
+#                    """)
+#     conn.commit()
+#     conn.close()
 
 
 def normalize_columns(cols):
@@ -90,7 +89,7 @@ def save_new_users_from_sheet():
         print("Sheet o‘qishda xato:", e)
         return []
 
-    conn = sqlite3.connect("users.db")
+    conn = sqlite3.connect("time_pay.db")
     cursor = conn.cursor()
     new_users = []
 
@@ -139,7 +138,7 @@ async def safe_send_message(chat_id, text):
 
 async def send_new_users():
     """DBda hali yuborilmagan foydalanuvchilarni yuboradi"""
-    conn = sqlite3.connect("users.db")
+    conn = sqlite3.connect("time_pay.db")
     cursor = conn.cursor()
     cursor.execute("""
                    SELECT id, name, phone, raw_phone, workers, adset, ad_name
@@ -182,14 +181,3 @@ async def scheduler(interval=30 * 60):
         except Exception as e:
             print("Xato:", e)
         await asyncio.sleep(interval)
-
-
-async def main():
-    init_db()
-    await send_new_users()
-    asyncio.create_task(scheduler(interval=5 * 60))  # 5 daqiqa
-    await dp.start_polling(bot)
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
